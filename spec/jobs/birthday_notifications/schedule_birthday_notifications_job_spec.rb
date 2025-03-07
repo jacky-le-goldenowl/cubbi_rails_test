@@ -1,17 +1,16 @@
-require "rails_helper"
+require 'rails_helper'
 
 RSpec.describe BirthdayNotifications::ScheduleBirthdayNotificationsJob, type: :job do
+  include ActiveJob::TestHelper
+
   describe "#perform" do
-    it "instantiates the BirthdayNotificationService and calls schedule_today_notifications" do
-      service_instance = instance_double(BirthdayNotifications::BirthdayNotificationService)
+    it "calls the ScheduleTodayNotificationService" do
+      expect(BirthdayNotifications::ScheduleTodayNotificationService)
+        .to receive(:call)
 
-      expect(BirthdayNotifications::BirthdayNotificationService)
-        .to receive(:new)
-        .and_return(service_instance)
-      expect(service_instance)
-        .to receive(:schedule_today_notifications)
-
-      described_class.perform_now
+      perform_enqueued_jobs do
+        described_class.perform_now
+      end
     end
   end
 end

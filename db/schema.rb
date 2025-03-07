@@ -10,17 +10,17 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_03_07_062508) do
+ActiveRecord::Schema[8.0].define(version: 2025_03_07_183528) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "birthday_notifications", force: :cascade do |t|
-    t.integer "status"
+    t.integer "status", default: 0
     t.date "birthday"
     t.bigint "user_id", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "retry_count"
+    t.integer "retry_count", default: 0
     t.index ["user_id", "birthday"], name: "index_birthday_notifications_on_user_id_and_birthday", unique: true
     t.index ["user_id"], name: "index_birthday_notifications_on_user_id"
   end
