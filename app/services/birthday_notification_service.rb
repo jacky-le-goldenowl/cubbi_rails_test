@@ -16,7 +16,6 @@ class BirthdayNotificationService < ApplicationService
             user: user,
             birthday: user_birthday
           )
-
           if notification.new_record?
             notification.status = :scheduled
             notification.retry_count = 0

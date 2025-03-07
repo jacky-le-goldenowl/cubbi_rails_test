@@ -1,4 +1,4 @@
-module BirthdayNotification
+module BirthdayNotificationJobs
   class ScheduleBirthdayNotificationsJob
     include Sidekiq::Job
 

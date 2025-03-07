@@ -60,4 +60,5 @@ group :test do
   gem "simplecov", require: false
   gem "shoulda-matchers"
   gem "pundit-matchers"
+  gem "webmock", require: false
 end

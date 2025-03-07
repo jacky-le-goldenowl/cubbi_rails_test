@@ -1,4 +1,4 @@
-module BirthdayNotification
+module BirthdayNotificationJobs
   class RetryFailedBirthdayNotificationsJob
     include Sidekiq::Job
 
