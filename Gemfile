@@ -37,7 +37,6 @@ gem "thruster", require: false
 
 gem "sidekiq", "~> 7.1", ">= 7.1.2"
 gem "sidekiq-cron"
-gem "sidekiq-scheduler"
 
 group :development, :test do
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
