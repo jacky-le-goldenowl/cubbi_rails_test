@@ -37,6 +37,7 @@ gem "thruster", require: false
 
 gem "sidekiq", "~> 7.1", ">= 7.1.2"
 gem "sidekiq-cron"
+gem "sidekiq-scheduler"
 
 group :development, :test do
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
@@ -46,13 +47,12 @@ group :development, :test do
   gem "dotenv-rails"
   gem "factory_bot_rails"
   gem "faker"
+  gem "seedbank"
 end
 
 group :development do
   gem "rubocop", require: false
   gem "brakeman", require: false
-  gem "letter_opener"
-  # gem 'bullet'
 end
 
 group :test do
