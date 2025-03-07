@@ -1,9 +1,9 @@
 schedule_birthday_notifications:
   cron: "0 * * * *"
-  class: "BirthdayNotificationJobs::ScheduleBirthdayNotificationsJob"
+  class: "BirthdayNotifications::ScheduleBirthdayNotificationsJob"
   description: "Scan the User model and create a BirthdayNotification if today is their birthday"
 
 send_birthday_notifications:
   cron: "0 * * * *"
-  class: "BirthdayNotificationJobs::SendBirthdayNotificationsJob"
+  class: "BirthdayNotifications::SendBirthdayNotificationsJob"
   description: "Send birthday notifications from the BirthdayNotification model"
