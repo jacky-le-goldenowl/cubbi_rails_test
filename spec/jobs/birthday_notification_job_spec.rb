@@ -12,7 +12,9 @@ RSpec.describe BirthdayNotificationJob, type: :job do
       before do
         success_response = instance_double(Net::HTTPSuccess)
         allow(success_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
-        allow(HookbinRequestService).to receive(:send_post_request).with(message: message).and_return(success_response)
+        hookbin_service_instance = instance_double(HookbinRequestService)
+        allow(HookbinRequestService).to receive(:new).and_return(hookbin_service_instance)
+        allow(hookbin_service_instance).to receive(:send_post_request).with(message: message).and_return(success_response)
       end
 
       it "updates the notification status to sent" do
@@ -28,11 +30,11 @@ RSpec.describe BirthdayNotificationJob, type: :job do
         allow(HookbinRequestService).to receive(:send_post_request).with(message: message).and_return(error_response)
       end
 
-      it "increments the retry_count and sets status to errored" do
+      it "increments the retry_count and sets status to failed" do
         expect {
           job.perform(notification.id)
         }.to change { notification.reload.retry_count }.by(1)
-        expect(notification.reload.status).to eq("errored")
+        expect(notification.reload.status).to eq("failed")
       end
     end
 
@@ -63,11 +65,11 @@ RSpec.describe BirthdayNotificationJob, type: :job do
         allow(Rails.logger).to receive(:error)
       end
 
-      it "rescues the error, increments retry_count and updates status to errored" do
+      it "rescues the error, increments retry_count and updates status to failed" do
         expect {
           job.perform(notification.id)
         }.to change { notification.reload.retry_count }.by(1)
-        expect(notification.reload.status).to eq("errored")
+        expect(notification.reload.status).to eq("failed")
         expect(Rails.logger).to have_received(:error).with(/Error sending notification #{notification.id}: Some error/)
       end
     end

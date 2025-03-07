@@ -9,7 +9,7 @@ RSpec.describe HookbinRequestService, type: :service do
     allow(ENV).to receive(:[]).with("HOOKBIN_URL").and_return(hookbin_url)
   end
 
-  describe '.send_post_request' do
+  describe '#send_post_request' do
     context 'when the request is successful' do
       before do
         stub_request(:post, hookbin_url)
@@ -21,7 +21,7 @@ RSpec.describe HookbinRequestService, type: :service do
       end
 
       it 'sends a POST request with the correct payload' do
-        response = described_class.send_post_request(payload)
+        response = described_class.call(payload)
 
         expect(response.code).to eq("200")
         expect(response.body).to eq({ success: true }.to_json)
@@ -38,7 +38,7 @@ RSpec.describe HookbinRequestService, type: :service do
       end
 
       it 'returns a 500 response' do
-        response = described_class.send_post_request(payload)
+        response = described_class.call(payload)
 
         expect(response.code).to eq("500")
         expect(response.body).to eq({ error: "Internal Server Error" }.to_json)
@@ -52,7 +52,7 @@ RSpec.describe HookbinRequestService, type: :service do
 
       it 'raises a timeout error' do
         expect {
-          described_class.send_post_request(payload)
+          described_class.call(payload)
         }.to raise_error(Net::OpenTimeout)
       end
     end

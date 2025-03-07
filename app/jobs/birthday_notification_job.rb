@@ -1,5 +1,21 @@
-class BirthdayNotificationJob
-  include Sidekiq::Job
+class BirthdayNotificationJob < ApplicationJob
+  queue_as :default
+
+  retry_on StandardError, wait: 5.seconds, attempts: BirthdayNotification::MAX_RETRIES
+
+  after_perform do |job|
+    notification_id = arguments.first
+    notification = BirthdayNotification.find_by(id: notification_id)
+    notification.update(status: :sent) if notification.present?
+  end
+
+  rescue_from(StandardError) do |exception|
+    notification_id = arguments.first
+    notification = BirthdayNotification.find_by(id: notification_id)
+    notification.increment!(:retry_count) if notification.present?
+    notification.update(status: BirthdayNotification.statuses[:failed]) if notification.present?
+    raise exception
+  end
 
   def perform(notification_id)
     notification = BirthdayNotification.find(notification_id)
@@ -7,23 +23,10 @@ class BirthdayNotificationJob
 
     message = "Hey, #{user.first_name} #{user.last_name} it’s your birthday"
 
-    response = HookbinRequestService.send_post_request(message: message)
+    response = HookbinRequestService.new({ message: message }).call
 
-    if response.is_a?(Net::HTTPSuccess)
-      notification.update(status: :sent)
-    else
-      notification.increment!(:retry_count)
-      if notification.retry_count < BirthdayNotification::MAX_RETRIES
-        notification.update(status: BirthdayNotification.statuses[:errored])
-      else
-        Rails.logger.error(
-          "RETRY LIMIT EXCEEDED: Notification #{notification.id} failed after #{BirthdayNotification::MAX_RETRIES} retries"
-        )
-      end
+    unless response.is_a?(Net::HTTPSuccess)
+      raise StandardError, "Failed to send notification #{notification.id}"
     end
-  rescue => e
-    Rails.logger.error("###ERROR!!!: Error sending notification #{notification_id}: #{e.message}")
-    notification.increment!(:retry_count) if notification.present?
-    notification.update(status: BirthdayNotification.statuses[:errored]) if notification.present?
   end
 end

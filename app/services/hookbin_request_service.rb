@@ -2,7 +2,19 @@ require "json"
 require "net/http"
 
 class HookbinRequestService < ApplicationService
-  def self.send_post_request(payload = {})
+  def initialize(payload = {})
+    @payload = payload
+  end
+
+  def call
+    send_post_request
+  end
+
+  private
+
+  attr_reader :payload
+
+  def send_post_request
     uri = URI(ENV["HOOKBIN_URL"])
     req = Net::HTTP::Post.new(uri, "Content-Type" => "application/json")
     req.body = payload.to_json

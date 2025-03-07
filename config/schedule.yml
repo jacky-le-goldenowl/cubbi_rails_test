@@ -1,14 +1,9 @@
 schedule_birthday_notifications:
-  every: ["10s", first_in: 0]
+  cron: "0 * * * *"
   class: "BirthdayNotificationJobs::ScheduleBirthdayNotificationsJob"
   description: "Scan the User model and create a BirthdayNotification if today is their birthday"
 
 send_birthday_notifications:
-  every: ["20s", first_in: 0]
+  cron: "0 * * * *"
   class: "BirthdayNotificationJobs::SendBirthdayNotificationsJob"
   description: "Send birthday notifications from the BirthdayNotification model"
-
-retry_failed_birthday_notifications:
-  every: ["1m", first_in: 0]
-  class: "BirthdayNotificationJobs::RetryFailedBirthdayNotificationsJob"
-  description: "Retry sending failed notifications (with less than 3 retries)"
