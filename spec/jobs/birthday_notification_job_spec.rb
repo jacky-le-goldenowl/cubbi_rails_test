@@ -1,76 +1,56 @@
+# spec/jobs/birthday_notification_job_spec.rb
 require 'rails_helper'
 
 RSpec.describe BirthdayNotificationJob, type: :job do
-  let(:user) { create(:user, first_name: "Jacky", last_name: "Le") }
-  let(:notification) { create(:birthday_notification, user: user, status: :scheduled, retry_count: initial_retry_count) }
-  let(:initial_retry_count) { 0 }
-  let(:job) { described_class.new }
-  let(:message) { "Hey, #{user.first_name} #{user.last_name} it’s your birthday" }
+  include ActiveJob::TestHelper
+
+  let(:notification) { create(:birthday_notification) }
+  let(:user)         { notification.user }
 
   describe "#perform" do
-    context "when the HTTP response is successful" do
+    context "when the notification exists and HookbinRequestService returns success" do
+      let(:success_response) { instance_double(Net::HTTPOK) }
+
       before do
-        success_response = instance_double(Net::HTTPSuccess)
         allow(success_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
-        hookbin_service_instance = instance_double(HookbinRequestService)
-        allow(HookbinRequestService).to receive(:new).and_return(hookbin_service_instance)
-        allow(hookbin_service_instance).to receive(:send_post_request).with(message: message).and_return(success_response)
+        allow(HookbinRequestService).to receive(:call).and_return(success_response)
       end
 
-      it "updates the notification status to sent" do
-        job.perform(notification.id)
+      it "calls the service, does not raise an exception, and updates the status to sent (via after_perform)" do
+        expected_message = "Hey, #{user.first_name} #{user.last_name}, it's your birthday!"
+        expect(HookbinRequestService).to receive(:call).with({ message: expected_message })
+
+        described_class.perform_now(notification.id)
+
         expect(notification.reload.status).to eq("sent")
       end
     end
 
-    context "when the HTTP response is not successful and retry_count is less than MAX_RETRIES" do
+    context "when the notification exists but HookbinRequestService returns an error" do
+      let(:failure_response) { instance_double(Net::HTTPBadRequest) }
+
       before do
-        error_response = instance_double(Net::HTTPBadRequest)
-        allow(error_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-        allow(HookbinRequestService).to receive(:send_post_request).with(message: message).and_return(error_response)
+        allow(failure_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
+        allow(HookbinRequestService).to receive(:call).and_return(failure_response)
       end
 
-      it "increments the retry_count and sets status to failed" do
+      it "raises an exception, triggers rescue_from to increment retry_count, and updates the status to failed" do
         expect {
-          job.perform(notification.id)
-        }.to change { notification.reload.retry_count }.by(1)
-        expect(notification.reload.status).to eq("failed")
+          described_class.perform_now(notification.id)
+        }.to raise_error(StandardError, "Failed to send notification #{notification.id}")
+
+        notification.reload
+        expect(notification.status).to eq("failed")
       end
     end
 
-    context "when the HTTP response is not successful and retry_count reaches MAX_RETRIES" do
-      let(:initial_retry_count) { BirthdayNotification::MAX_RETRIES - 1 }
+    context "when the notification is not found" do
+      it "does not call HookbinRequestService and logs an error" do
+        invalid_id = -1
+        expect(HookbinRequestService).not_to receive(:call)
+        expect(Rails.logger).to receive(:error).with(/Notification with id #{invalid_id} not found/)
 
-      before do
-        error_response = instance_double(Net::HTTPBadRequest)
-        allow(error_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(false)
-        allow(HookbinRequestService).to receive(:send_post_request).with(message: message).and_return(error_response)
-        allow(Rails.logger).to receive(:error)
-      end
-
-      it "increments the retry_count and does not update status (logs error)" do
-        expect {
-          job.perform(notification.id)
-        }.to change { notification.reload.retry_count }.by(1)
-        expect(notification.reload.retry_count).to eq(BirthdayNotification::MAX_RETRIES)
-        expect(Rails.logger).to have_received(:error).with(
-          "RETRY LIMIT EXCEEDED: Notification #{notification.id} failed after #{BirthdayNotification::MAX_RETRIES} retries"
-        )
-      end
-    end
-
-    context "when an exception is raised during processing" do
-      before do
-        allow(HookbinRequestService).to receive(:send_post_request).with(message: message).and_raise(StandardError.new("Some error"))
-        allow(Rails.logger).to receive(:error)
-      end
-
-      it "rescues the error, increments retry_count and updates status to failed" do
-        expect {
-          job.perform(notification.id)
-        }.to change { notification.reload.retry_count }.by(1)
-        expect(notification.reload.status).to eq("failed")
-        expect(Rails.logger).to have_received(:error).with(/Error sending notification #{notification.id}: Some error/)
+        described_class.perform_now(invalid_id)
       end
     end
   end

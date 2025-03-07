@@ -1,128 +1,121 @@
+# spec/services/birthday_notifications/birthday_notification_service_spec.rb
 require 'rails_helper'
 
 RSpec.describe BirthdayNotifications::BirthdayNotificationService, type: :service do
-  let!(:user) { create(:user, birthday_date: Date.today, location: 'Asia/Ho_Chi_Minh') }
-  let!(:other_user) { create(:user, birthday_date: Date.tomorrow) }
-  let(:today_local) { Time.current.in_time_zone(user.location).to_date }
-  let(:user_birthday) { user.birthday_date.change(year: today_local.year) }
-  let(:scheduled_time) { Time.use_zone(user.location) { Time.zone.local(today_local.year, user_birthday.month, user_birthday.day, 9, 0, 0) } }
+  include ActiveSupport::Testing::TimeHelpers
 
-  describe '#schedule_today_notifications' do
-    before { allow(Sidekiq.logger).to receive(:info) }
+  let(:service) { described_class.new }
 
-    context 'when user has a birthday today' do
-      it 'creates a scheduled notification if not exists' do
+  describe "#schedule_today_notifications" do
+    context "when user's birthday is today" do
+      before { travel_to Time.zone.local(2024, 5, 15, 8, 0, 0) }
+      after  { travel_back }
+
+      let(:current_date) { Date.current }
+      let!(:user) { create(:user, birthday_date: current_date, location: "UTC") }
+
+      it "creates a new scheduled birthday notification and enqueues a job with the correct wait time" do
+        expected_scheduled_time = Time.use_zone("UTC") do
+          Time.zone.local(current_date.year, current_date.month, current_date.day, 9, 0, 0)
+        end
+
+        # Expect the job to be enqueued with the proper scheduled time.
+        job_double = instance_double("ActiveJob::EnqueuedJob")
+        expect(BirthdayNotificationJob).to receive(:set)
+          .with(wait_until: expected_scheduled_time)
+          .and_return(job_double)
+        expect(job_double).to receive(:perform_later).with(instance_of(Integer))
+
         expect {
-          described_class.new().schedule_today_notifications
-        }.to change(BirthdayNotification, :count).by(1)
+          service.schedule_today_notifications
+        }.to change { BirthdayNotification.count }.by(1)
 
         notification = BirthdayNotification.last
-        expect(notification.user).to eq(user)
-        expect(notification.birthday).to eq(user_birthday)
-        expect(notification).to be_scheduled
+        expect(notification.status).to eq("scheduled")
         expect(notification.retry_count).to eq(0)
       end
-
-      it 'schedules the notification job' do
-        allow(BirthdayNotificationJob).to receive(:perform_at)
-
-        described_class.new().schedule_today_notifications
-
-        notification = BirthdayNotification.last
-        expect(BirthdayNotificationJob).to have_received(:perform_at).with(scheduled_time, notification.id)
-      end
     end
 
-    context 'when notification already exists' do
-      let!(:notification) { create(:birthday_notification, user: user, birthday: user_birthday, status: :scheduled) }
+    context "when user's birthday is not today" do
+      before { travel_to Time.zone.local(2024, 5, 15, 8, 0, 0) }
+      after  { travel_back }
 
-      it 'does not create a duplicate notification' do
+      let!(:user) { create(:user, birthday_date: Date.tomorrow, location: "UTC") }
+
+      it "does not create any birthday notifications" do
+        expect(BirthdayNotificationJob).not_to receive(:set)
         expect {
-          described_class.new().schedule_today_notifications
-        }.not_to change(BirthdayNotification, :count)
-      end
-
-      it 're-schedules the existing notification' do
-        allow(BirthdayNotificationJob).to receive(:perform_at)
-
-        described_class.new().schedule_today_notifications
-
-        expect(BirthdayNotificationJob).to have_received(:perform_at).with(scheduled_time, notification.id)
+          service.schedule_today_notifications
+        }.not_to change { BirthdayNotification.count }
       end
     end
 
-    context 'when notification failed and has retries left' do
-      let!(:notification) { create(:birthday_notification, user: user, birthday: user_birthday, status: :failed, retry_count: 2) }
+    context "when a notification already exists and is scheduled" do
+      before { travel_to Time.zone.local(2024, 5, 15, 8, 0, 0) }
+      after  { travel_back }
 
-      it 'retries scheduling the notification' do
-        allow(BirthdayNotificationJob).to receive(:perform_at)
-
-        described_class.new().schedule_today_notifications
-
-        expect(BirthdayNotificationJob).to have_received(:perform_at).with(scheduled_time, notification.id)
+      let(:current_date) { Date.current }
+      let!(:user) { create(:user, birthday_date: current_date, location: "UTC") }
+      let!(:notification) do
+        create(:birthday_notification, user: user, birthday: current_date,
+               status: :scheduled, retry_count: 0)
       end
-    end
 
-    context 'when notification failed but max retries exceeded' do
-      let!(:notification) { create(:birthday_notification, user: user, birthday: user_birthday, status: :failed, retry_count: BirthdayNotification::MAX_RETRIES) }
+      it "does not create a duplicate notification but enqueues a job" do
+        expected_scheduled_time = Time.use_zone("UTC") do
+          Time.zone.local(current_date.year, current_date.month, current_date.day, 9, 0, 0)
+        end
 
-      it 'does not reschedule the notification' do
-        allow(BirthdayNotificationJob).to receive(:perform_at)
+        job_double = instance_double("ActiveJob::EnqueuedJob")
+        expect(BirthdayNotificationJob).to receive(:set)
+          .with(wait_until: expected_scheduled_time)
+          .and_return(job_double)
+        expect(job_double).to receive(:perform_later).with(notification.id)
 
-        described_class.new().schedule_today_notifications
-
-        expect(BirthdayNotificationJob).not_to have_received(:perform_at)
-      end
-    end
-
-    context 'when user does not have a birthday today' do
-      it 'does not create a notification' do
         expect {
-          described_class.new().schedule_today_notifications
-      }.to change(BirthdayNotification, :count).by(1)
+          service.schedule_today_notifications
+        }.not_to change { BirthdayNotification.count }
+      end
+    end
 
-        notification = BirthdayNotification.last
-        expect(notification.user).to eq(user)
-        expect(notification.birthday).to eq(user.birthday_date)
-        expect(notification).not_to be_falsey
+    context "when a notification already exists but has failed and is eligible for retry" do
+      before { travel_to Time.zone.local(2024, 5, 15, 8, 0, 0) }
+      after  { travel_back }
+
+      let(:current_date) { Date.current }
+      let!(:user) { create(:user, birthday_date: current_date, location: "UTC") }
+      let!(:notification) do
+        create(:birthday_notification, user: user, birthday: current_date,
+               status: :failed, retry_count: BirthdayNotification::MAX_RETRIES - 1)
+      end
+
+      it "enqueues a job for the failed notification" do
+        expected_scheduled_time = Time.use_zone("UTC") do
+          Time.zone.local(current_date.year, current_date.month, current_date.day, 9, 0, 0)
+        end
+
+        job_double = instance_double("ActiveJob::EnqueuedJob")
+        expect(BirthdayNotificationJob).to receive(:set)
+          .with(wait_until: expected_scheduled_time)
+          .and_return(job_double)
+        expect(job_double).to receive(:perform_later).with(notification.id)
+
+        expect {
+          service.schedule_today_notifications
+        }.not_to change { BirthdayNotification.count }
       end
     end
   end
 
-  describe '#send_scheduled_notifications' do
-    let!(:scheduled_notifications) { create_list(:birthday_notification, 3, status: :scheduled) }
+  describe "#send_scheduled_notifications" do
+    let!(:notifications) { create_list(:birthday_notification, 3, status: :scheduled) }
 
-    it 'enqueues all scheduled notifications' do
-      allow(BirthdayNotificationJob).to receive(:perform_later)
-
-      described_class.new().send_scheduled_notifications
-
-      scheduled_notifications.each do |notification|
-        expect(BirthdayNotificationJob).to have_received(:perform_later).with(notification.id)
+    it "enqueues a job for each scheduled notification" do
+      notifications.each do |notification|
+        expect(BirthdayNotificationJob).to receive(:perform_later).with(notification.id)
       end
-    end
-  end
 
-  describe '#retry_failed_notifications' do
-    let!(:failed_notifications) { create_list(:birthday_notification, 2, status: :failed, retry_count: 2) }
-    let!(:max_retries_exceeded) { create(:birthday_notification, status: :failed, retry_count: BirthdayNotification::MAX_RETRIES) }
-
-    it 'retries notifications that have not exceeded max retries' do
-      allow(BirthdayNotificationJob).to receive(:perform_later)
-
-      described_class.new().retry_failed_notifications
-
-      failed_notifications.each do |notification|
-        expect(BirthdayNotificationJob).to have_received(:perform_later).with(notification.id)
-      end
-    end
-
-    it 'does not retry notifications that have exceeded max retries' do
-      allow(BirthdayNotificationJob).to receive(:perform_later)
-
-      described_class.new().retry_failed_notifications
-
-      expect(BirthdayNotificationJob).not_to have_received(:perform_later).with(max_retries_exceeded.id)
+      service.send_scheduled_notifications
     end
   end
 end

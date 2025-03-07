@@ -36,13 +36,5 @@ module BirthdayNotifications
         BirthdayNotificationJob.perform_later(notification.id)
       end
     end
-
-    def retry_failed_notifications
-      BirthdayNotification.where(status: BirthdayNotification.statuses[:failed])
-                          .where("retry_count < ?", BirthdayNotification::MAX_RETRIES)
-                          .find_each do |notification|
-        BirthdayNotificationJob.perform_later(notification.id)
-      end
-    end
   end
 end
