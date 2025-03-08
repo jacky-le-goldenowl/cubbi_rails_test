@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   scan_ruby:
@@ -58,7 +58,8 @@ jobs:
         with:
           ruby-version: .ruby-version
           bundler-cache: true
-
+      - name: Setup database config
+        run: cp config/database.yml.sample config/database.yml
       - name: Run tests
         env:
           RAILS_ENV: test
