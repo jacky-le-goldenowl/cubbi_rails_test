@@ -2,6 +2,19 @@
 
 Cubbi Test is a Ruby on Rails application designed to send personalized happy birthday messages to users at exactly 9 AM in their local time zone. Whether a user is in New York, Melbourne, or anywhere in the world, they will receive the message “Hey, {full_name} it’s your birthday” right on time.
 
+**Table of Contents**
+
+- [Cubbi Test](#cubbi-test)
+  - [Features](#features)
+  - [Overview](#overview)
+  - [Technologies Used](#technologies-used)
+  - [Installation and Setup](#installation-and-setup)
+  - [API Endpoints](#api-endpoints)
+  - [Birthday Message Scheduling](#birthday-message-scheduling)
+  - [Screenshots:](#screenshots)
+
+---
+
 ## Features
 
 - **User Management API:**
@@ -19,6 +32,74 @@ Cubbi Test is a Ruby on Rails application designed to send personalized happy bi
   Utilizes Sidekiq for processing jobs asynchronously to handle message scheduling and delivery.
 - **Seed Data Management:**
   Uses the Seedbank gem for managing seed data.
+
+## Overview
+
+- **Rails & Sidekiq**
+
+  - Built on Rails with Sidekiq for background job processing.
+
+- **API Endpoints**
+
+  - Provides simple endpoints for creating and deleting users.
+
+- **User Model**
+
+  - **Attributes:** first name, last name, birthday date, email, and location.
+  - **Validations:** unique email, valid email format, presence of birthday date.
+  - **Callback:** triggers update of birthday notifications when `birthday_date` is updated.
+
+- **BirthdayNotification Model**
+
+  - **Association:** belongs to a User.
+  - **Unique Constraint:** one notification per user per birthday (unique on `user_id` & `birthday`).
+  - **Enum Status:** scheduled, sent, failed, cancelled.
+  - **Tracking:** includes a `retry_count` with a maximum defined by `MAX_RETRIES`.
+  - **Constants:**
+    - `MAX_RETRIES`
+    - `NOTIFICATION_TIME`
+
+- **Service Objects**
+
+  - **ScheduleTodayNotificationService**
+    - Scans all users to check if today (in the user's local time) is their birthday.
+    - Creates or finds a BirthdayNotification.
+    - Enqueues a job to send the notification at 9 AM local time.
+  - **UpdateBirthdayNotificationService**
+    - Called via a callback when a user's `birthday_date` is updated.
+    - Cancels outdated notifications (updates status to cancelled) if the birthday changes.
+    - Optionally, enqueues a new job if needed.
+  - **UserTimeHelper Module**
+    - Provides shared time-related helper methods (e.g., `today_local`, `scheduled_time`, `user_timezone`, `birthday_today?`).
+    - Included in service objects to centralize timezone and scheduling logic.
+
+- **Background Jobs**
+
+  - **SendBirthdayNotificationJob**
+
+    - Responsible for sending the actual birthday notification (via Hookbin webhook API).
+
+  - **SendScheduledBirthdayNotificationsJob**
+
+    - Periodically re-enqueues pending notifications based on database data.
+    - Acts as a safeguard in case Redis (which stores jobs) loses data.
+    - Although the possibility is low, it ensures that the persistent database records can recover and re-schedule any lost notifications.
+
+  - **Job Scheduling**
+    - Uses sidekiq-cronjob for periodic jobs:
+      - Scanning for birthdays of user
+      - Optionally, retrying jobs if necessary (leveraging Sidekiq's built-in retry mechanism).
+
+- **Job Resilience**
+
+  - The dedicated re-enqueue job (`SendScheduledBirthdayNotificationsJob`) ensures data reliability.
+  - In the rare event of Redis data loss, persistent database records allow recovery of pending notifications.
+
+- **Testing**
+  - Uses RSpec for unit and integration tests.
+  - Model tests for validations, associations, and callbacks.
+  - Service tests for scheduling and updating notifications.
+  - Define factories
 
 ## Technologies Used
 
@@ -39,7 +120,6 @@ Cubbi Test is a Ruby on Rails application designed to send personalized happy bi
 2. **Install Dependencies:**
 
 ```bash
-
 bundle install
 ```
 
@@ -50,7 +130,6 @@ Configure your database settings in config/database.yml.
 Create and migrate the database:
 
 ```bash
-
 rails db:create
 rails db:migrate
 ```
@@ -62,7 +141,6 @@ This project uses the Seedbank gem to manage seed data.
 To run the seeds, execute:
 
 ```bash
-
 bundle exec rake db:seed:all
 ```
 
@@ -78,7 +156,6 @@ rails server
 In a separate terminal run:
 
 ```bash
-
 bundle exec sidekiq
 ```
 
@@ -104,3 +181,12 @@ Hey, {full_name} it’s your birthday
 Delivery:
 
 At 9 AM on each user’s birthday (based on their local time), the system triggers a call to a Hookbin endpoint (e.g., one created at hookbin.com) to send the message.
+
+## Screenshots:
+
+- Sidekiq:
+  ![Sidekiq](docs/sidekiq_cubbi.png)
+- Rubocop linter
+  ![Rubocop](docs/rubocop.png)
+- Coverage:
+  ![Coverage](docs/coverage.png)
