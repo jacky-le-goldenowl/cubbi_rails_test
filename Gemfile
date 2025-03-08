@@ -46,13 +46,12 @@ group :development, :test do
   gem "dotenv-rails"
   gem "factory_bot_rails"
   gem "faker"
+  gem "seedbank"
 end
 
 group :development do
   gem "rubocop", require: false
   gem "brakeman", require: false
-  gem "letter_opener"
-  # gem 'bullet'
 end
 
 group :test do
@@ -60,4 +59,5 @@ group :test do
   gem "simplecov", require: false
   gem "shoulda-matchers"
   gem "pundit-matchers"
+  gem "webmock", require: false
 end

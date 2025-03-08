@@ -2,6 +2,8 @@
 :verbose: false
 :concurrency: 10
 :timeout: 25
+:scheduler:
+  enabled: true
 
 :queues:
   - critical
