@@ -13,6 +13,7 @@ Cubbi Test is a Ruby on Rails application designed to send personalized happy bi
     - [Scalability and Performance of Sidekiq](#scalability-and-performance-of-sidekiq)
       - [Example Scenario](#example-scenario)
       - [Real-World Considerations](#real-world-considerations)
+    - [Scalability in Your Code](#scalability-in-your-code)
   - [Features](#features)
   - [Overview](#overview)
   - [Technologies Used](#technologies-used)
@@ -169,6 +170,86 @@ Sidekiq is designed for high concurrency and efficient job processing. With a pr
 
 - **Fault Tolerance:**
   The resilience mechanisms (e.g., retry policies and re-enqueue jobs) guarantee that even if some jobs fail or if there's a temporary data loss in Redis, no scheduled notification is lost, and all jobs are eventually processed.
+
+### Scalability in Your Code
+
+The scalability of your system is reflected in several key areas of your code:
+
+1. **Batch Processing with `find_each`:**
+
+   - **Code:**
+
+     ```ruby
+     User.find_each do |user|
+       # process each user
+     end
+     ```
+
+   - **Explanation:**
+     Using `find_each` allows you to process users in small batches rather than loading all users into memory at once. This reduces memory overhead and optimizes database querying when handling a large number of users.
+
+2. **Separation of Scheduling and Sending Notifications:**
+
+   - **Scheduling Code:**
+
+     ```ruby
+     notification = BirthdayNotification.find_or_initialize_by(
+       user: user,
+       birthday: today_local(user)
+     )
+
+     if notification.save! && should_schedule?(notification)
+       SendBirthdayNotificationJob.set(wait_until: scheduled_time(user))
+                                  .perform_later(notification.id)
+     end
+     ```
+
+   - **Re-enqueue (Job Resilience) Code Example:**
+
+     ```ruby
+     module BirthdayNotifications
+       class SendScheduledBirthdayNotificationsJob < ApplicationJob
+         queue_as :default
+
+         def perform
+           BirthdayNotifications::SendScheduledNotificationService.call()
+         end
+       end
+     end
+     ```
+
+   - **Explanation:**
+     By separating the scheduling (which creates or updates the notification records) from the sending of notifications, your system can handle each task independently. This separation allows the lightweight scheduling process to quickly offload heavy tasks to background jobs. The dedicated re-enqueue job helps ensure that any scheduled notifications that might have been lost due to transient failures (e.g., a Redis outage) are reprocessed, boosting overall system resilience and scalability.
+
+3. **Leveraging Sidekiq and Multi-threaded Workers:**
+
+   - **Sending Notification Code:**
+
+     ```ruby
+     module BirthdayNotifications
+       class SendBirthdayNotificationJob < ApplicationJob
+         queue_as :default
+
+         retry_on StandardError, wait: 5.seconds, attempts: BirthdayNotification::MAX_RETRIES
+
+         after_perform do |job|
+           update_notification_status((job || self).arguments.first, :sent)
+         end
+
+         rescue_from(StandardError) do |exception, job|
+           update_notification_status((job || self).arguments.first, :failed, exception)
+           raise exception
+         end
+
+         def perform(notification_id)
+           #...
+         end
+       end
+     end
+     ```
+
+   - **Explanation:**
+     Sidekiq enables concurrent processing by using multiple worker threads. This allows your system to process many jobs simultaneously. With enough workers and servers, your system can scale horizontally to handle millions of jobs per day. The built-in retry mechanism and error handling further enhance reliability by automatically reprocessing failed jobs.
 
 ## Features
 
